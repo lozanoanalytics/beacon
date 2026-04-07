@@ -40,7 +40,7 @@ function findScamPhrases(text: string): string[] {
 }
 
 // main analysis function
-//takes extracted page data abd returns a HeuristicResult
+//takes extracted page data and returns a HeuristicResult
 
 export function analyzeContent(pageData: ExtractedPageData): HeuristicResult {
     const findings: string[] = [];
