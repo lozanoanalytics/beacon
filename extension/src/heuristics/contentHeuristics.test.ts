@@ -1,5 +1,5 @@
 // Manual test for the content heuristics function
-//NOT part of extension
+// Compiled with the extension source, but not executed by the extension runtime.
 
 import { analyzeContent } from "./contentHeuristics";
 import type { ExtractedPageData } from "../types/heuristics";
