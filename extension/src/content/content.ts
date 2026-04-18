@@ -1,155 +1,89 @@
-//interface describes what an object looks like
-// This says: "The data we extract will always have a 'url' string
-// and a 'textContent' string." This helps catch mistakes early --
-// if we accidentally forget one of these fields, TypeScript will
-// warn us before we even run the code.
+// CONTENT SCRIPT
+//file runs auto on every web page user visits
+//(1) extracts structured data (URL, title, text, links, etc)
+//(2) listens for messages from popup and respond with the data
+//(3) logs extracted data to the page console for debugging
 
-interface PageData {
+// Local type declarations
+// Content scripts cannot use ES module imports,
+// so we redeclare the shapes here. Keep in sync
+// with extension/src/types/heuristics.ts.
+
+interface Link {
+    text: string;
+    href: string;
+}
+
+interface ExtractedPageData {
     url: string;
+    title: string;
+    metaDescription: string;
     textContent: string;
+    links: Link[];
 }
 
-// Security check interface
-interface SecurityCheck {
-    isSafe: boolean;
-    warnings: string[];
-    domain: string;
-}
-
-//function that reads page content
-//grabs:(1) current page URL & (2) visible text on page
-//trimming text and cap it to 5000 characters to avoid sending too much data to the server
-
-// function extractPageData(): PageData {
-//     const url = window.location.href;
-//     const rawText: string = document.body.innerText || "";
-//     const textContent: string = rawText.trim().substring(0,5000);
-    
-//     return {
-//         url: url,
-//         textContent: textContent
-//     };
-// }
-
-// Common legitimate domains (whitelist)
-const TRUSTED_DOMAINS = new Set([
-    'google.com',
-    'github.com',
-    'stackoverflow.com',
-    'wikipedia.org',
-    'microsoft.com',
-    'apple.com',
-    'amazon.com',
-    'facebook.com',
-    'twitter.com',
-    'linkedin.com',
-    'reddit.com',
-    'youtube.com'
-]);
-
-// Common misspellings / lookalikes (examples)
-const COMMON_LOOKALIKES: Record<string, string[]> = {
-    'google.com': ['gogle.com', 'googlle.com', 'goolge.com', 'g00gle.com'],
-    'github.com': ['githup.com', 'gitbub.com', 'githuub.com'],
-    'amazon.com': ['amaz0n.com', 'amazom.com', 'amaozn.com'],
-    'paypal.com': ['paypa1.com', 'paypai.com', 'paypa.com']
-};
-
-// Extract domain from URL
-function extractDomain(url: string): string {
-    try {
-        const urlObj = new URL(url);
-        return urlObj.hostname.toLowerCase();
-    } catch {
-        return '';
-    }
-}
-
-// Check for misspellings using Levenshtein distance
-function levenshteinDistance(str1: string, str2: string): number {
-    const len1 = str1.length;
-    const len2 = str2.length;
-    const matrix: number[][] = Array(len2 + 1)
-        .fill(null)
-        .map(() => Array(len1 + 1).fill(0));
-
-    for (let i = 0; i <= len1; i++) matrix[0][i] = i;
-    for (let j = 0; j <= len2; j++) matrix[j][0] = j;
-
-    for (let j = 1; j <= len2; j++) {
-        for (let i = 1; i <= len1; i++) {
-            const cost = str1[i - 1] === str2[j - 1] ? 0 : 1;
-            matrix[j][i] = Math.min(
-                matrix[j][i - 1] + 1,
-                matrix[j - 1][i] + 1,
-                matrix[j - 1][i - 1] + cost
-            );
-        }
-    }
-    return matrix[len2][len1];
-}
-
-// Perform security checks on domain
-function checkDomainSecurity(url: string): SecurityCheck {
-    const domain = extractDomain(url);
-    const warnings: string[] = [];
-    let isSafe = true;
-
-    if (!domain) {
-        return { isSafe: false, warnings: ['Invalid URL format'], domain: '' };
-    }
-
-    // Check 1: HTTPS protocol
-    if (!url.startsWith('https://')) {
-        warnings.push('⚠️ Not using HTTPS. Connection may not be secure.');
-        isSafe = false;
-    }
-
-    // Check 2: Trusted TLD (.com, .org)
-    const tld = domain.split('.').pop() || '';
-    if (tld === 'com' || tld === 'org') {
-        // Additional check: is it a known trusted domain?
-        if (TRUSTED_DOMAINS.has(domain)) {
-            return { isSafe: true, warnings: [], domain };
-        }
-    }
-
-    // Check 3: Check against known lookalikes
-    for (const [legitimate, lookalikes] of Object.entries(COMMON_LOOKALIKES)) {
-        if (lookalikes.includes(domain)) {
-            warnings.push(`🚨 Suspected phishing: "${domain}" looks like "${legitimate}"`);
-            isSafe = false;
-        }
-    }
-
-    // Check 4: Fuzzy matching for misspellings (Levenshtein distance < 3)
-    for (const trustedDomain of TRUSTED_DOMAINS) {
-        const distance = levenshteinDistance(domain, trustedDomain);
-        if (distance > 0 && distance <= 2) {
-            warnings.push(`⚠️ Domain "${domain}" is very similar to "${trustedDomain}". Double-check before entering credentials.`);
-            isSafe = false;
-        }
-    }
-
-    // Check 5: Suspicious patterns (numbers replacing letters)
-    if (/[0-9]/.test(domain) && domain.length > 10) {
-        warnings.push('⚠️ Domain contains numbers. Verify this is the correct site.');
-        isSafe = false;
-    }
-
-    return { isSafe, warnings, domain };
-}
-
-function extractPageData(): PageData {
+function extractPageData(): ExtractedPageData {
+    //get current page URL
     const url = window.location.href;
-    const rawText: string = document.body.innerText || "";
+    //title of page
+    const title: string = document.title;
+    //meta description used by sites to summarize content, useful for detection and often contains scammy language
+    const metaDescription: string =
+        document.querySelector('meta[name="description"]')?.getAttribute("content") || "";
+    // Try to find main content area using common tags, fallback to body text
+    const mainElement: HTMLElement | null = 
+        document.querySelector("main") ||
+        document.querySelector("article") ||
+        document.querySelector<HTMLElement>('[role ="main"]');
+    //get visible text content from page, prioritizing main/article/role=main if available
+    const rawText: string = mainElement
+        ? mainElement.innerText
+        : document.body.innerText || "";
+    //limit text content to 5000 chars
     const textContent: string = rawText.trim().substring(0, 5000);
+    //extract links from page (visible text and href)
+    //limit to first 100 links with http/https protocols to prevent large payloads
+    const linkElements = document.querySelectorAll("a[href]");
+    const links: Link[] = Array.from(linkElements)
+        .map((element) => {
+            const text = (element.textContent || "").trim();
+            const href = element.getAttribute("href") || "";
+            return { text: text, href: href };
+        })
+        .filter((link) => {
+            const isValidProtocol = link.href.startsWith("http://") || link.href.startsWith("https://");
+            return link.text.length > 0 && isValidProtocol;
+        })
+        .slice(0, 100);
     
     return {
         url: url,
-        textContent: textContent
+        title: title,
+        metaDescription: metaDescription,
+        textContent: textContent,
+        links: links
     };
 }
+
+// Helper: print extracted page data to the page console in a readable way
+// 'label' lets us know what triggered the log (page load vs popup scan)
+
+function logExtractedData(label: string, data: ExtractedPageData): void {
+    console.group(`[Beacon] Extracted page data (${label})`);
+    console.log("URL:", data.url);
+    console.log("Title:", data.title);
+    console.log("Meta description:", data.metaDescription);
+    console.log("Text content length:", data.textContent.length, "chars");
+    console.log("Text content preview:", data.textContent.substring(0, 200) + "...");
+    console.log("Links found:", data.links.length);
+    console.table(data.links.slice(0, 10)); //show first 10 links as a table
+    console.groupEnd();
+}
+
+// Run extraction once when the page loads, so we can verify in DevTools
+// that Beacon is seeing the page correctly without needing to open the popup.
+const initialData = extractPageData();
+logExtractedData("page load", initialData);
 
 // Listen for messages from the popup script
 // chrome.runtime.onMessage is Chrome's messaging system.
@@ -164,10 +98,11 @@ chrome.runtime.onMessage.addListener(
    (
      message: { action: string },
      sender: chrome.runtime.MessageSender,
-     sendResponse: (response:PageData) => void
+     sendResponse: (response:ExtractedPageData) => void
    ) => {
      if (message.action === "scanPage") {
         const pageData = extractPageData();
+        logExtractedData("popup scan", pageData);
         sendResponse(pageData);
      }
      return true;
