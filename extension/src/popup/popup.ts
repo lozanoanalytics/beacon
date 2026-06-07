@@ -233,7 +233,7 @@ function mockAnalyze(pageData: PageData): AnalysisResult {
   if (isSuspicious) {
     return {
       score: 8,
-      verdict: "Likely Scam",
+      verdict: "Scam",
       explanation: "This URL contains patterns commonly used in phishing and scam websites. Do not enter any personal information.",
       websiteInfo: {
         domainAge: "Created less than 1 year ago",
@@ -247,7 +247,7 @@ function mockAnalyze(pageData: PageData): AnalysisResult {
   //rest = medium score
   return {
     score: 4,
-    verdict: "Suspicious",
+    verdict: "Uncertain",
     explanation: "This website could not be verified as safe. Be cautious and avoid entering personal or financial information.",
     websiteInfo: {
       domainAge: "Created 2 years ago",
@@ -259,15 +259,15 @@ function mockAnalyze(pageData: PageData): AnalysisResult {
 }
 
 //(4) Determine verdict level from score
-// Returns "safe", "suspicious", or "scam" based on the score
+// Returns "safe", "uncertain", or "scam" based on the score
 //Using this to pick the right CSS color classes.
-//0-3 = safe, 4-6 = suspicious, 7-10 = scam
+//0-3 = safe, 4-6 = uncertain, 7-10 = scam
 
 function getVerdictLevel(score: number): string {
     if (score <= 3) {
         return "safe";
     } else if (score <= 6) {
-        return "suspicious";
+        return "uncertain";
     } else {
         return "scam";
     }
@@ -306,10 +306,10 @@ function showResults(result: AnalysisResult, url: string): void {
 
     const level: string = getVerdictLevel(result.score);
     
-    scoreCircle.classList.remove("score-safe", "score-suspicious", "score-scam"); // Remove old classes
+    scoreCircle.classList.remove("score-safe", "score-uncertain", "score-scam"); // Remove old classes
     scoreCircle.classList.add("score-" + level);
 
-    verdictText.classList.remove("verdict-safe", "verdict-suspicious", "verdict-scam"); // Remove old classes
+    verdictText.classList.remove("verdict-safe", "verdict-uncertain", "verdict-scam"); // Remove old classes
     verdictText.classList.add("verdict-" + level);
 }
 

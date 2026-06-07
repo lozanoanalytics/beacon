@@ -6,7 +6,7 @@
 
 // Verdict
 
-export type Verdict = "Safe" | "Uncertain" | "Suspicious" | "Likely Scam";
+export type Verdict = "Safe" | "Uncertain" | "Scam";
 
 // HeuristicSource - describes which module produced result
 // later let's add images too for detection

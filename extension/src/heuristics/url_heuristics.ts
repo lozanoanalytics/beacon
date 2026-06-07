@@ -355,16 +355,14 @@ export function analyzeLink(link: Link): HeuristicResult {
   const score = suspicionScore / maxScore;
 
   // Determine verdict based on findings
-  let verdict: "Safe" | "Uncertain" | "Suspicious" | "Likely Scam";
+  let verdict: "Safe" | "Uncertain" | "Scam";
 
   if (findings.length === 0) {
     verdict = "Safe";
   } else if (findings.length <= 2) {
     verdict = "Uncertain";
-  } else if (findings.length <= 4) {
-    verdict = "Suspicious";
   } else {
-    verdict = "Likely Scam";
+    verdict = "Scam";
   }
 
   return {
@@ -394,15 +392,13 @@ export function analyzeLinks(links: Link[]): HeuristicResult {
   const averageScore = results.reduce((sum, r) => sum + r.score, 0) / results.length;
   const suspiciousCount = results.filter((r) => r.verdict !== "Safe").length;
 
-  let verdict: "Safe" | "Uncertain" | "Suspicious" | "Likely Scam";
+  let verdict: "Safe" | "Uncertain" | "Scam";
   if (suspiciousCount === 0) {
     verdict = "Safe";
   } else if (suspiciousCount <= links.length * 0.25) {
     verdict = "Uncertain";
-  } else if (suspiciousCount <= links.length * 0.5) {
-    verdict = "Suspicious";
   } else {
-    verdict = "Likely Scam";
+    verdict = "Scam";
   }
 
   const findings = results

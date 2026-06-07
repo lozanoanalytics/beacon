@@ -172,35 +172,25 @@ export function analyzeContent(pageData: ExtractedPageData): HeuristicResult {
     score += textMatches.length * 2;
     score += mismatchedLinkCount * 4;
 
-    //cap score at 10
-    if (score > 10) {
-        score = 10;
-    }
+    // Cap score at 10
+    score = Math.min(score, 10);
 
-    //verdict + explanation
-    //convert numeric score into verdict and explanation
-    let verdict: HeuristicResult["verdict"];
-    let explanation: string;
+    // Determine verdict and explanation based on score
+    const verdictMap: { [key: string]: [HeuristicResult["verdict"], string] } = {
+        "0": ["Safe", "No scam phrases detected in content."],
+        "low": ["Safe", "Minor indicators of potential scam content."],
+        "mid": ["Uncertain", "The page contains some phrases commonly associated with scams. Exercise caution."],
+        "high": ["Scam", "Strong indicators of scam content detected. Avoid interacting with this page."]
+    };
 
-    if (score === 0) {
-        verdict = "Safe";
-        explanation = "No scam phrases detected in content.";
-    } else if (score <= 3) {
-        verdict = "Safe";
-        explanation = "Minor indicators of potential scam content.";
-    } else if (score <= 6) {
-        verdict = "Uncertain";
-        explanation = "The page contains some phrases commonly associated with scams. Exercise caution.";
-    } else {
-        verdict = "Likely Scam";
-        explanation = "Strong indicators of scam content detected. Avoid interacting with this page.";
-    }
+    let verdictKey = score === 0 ? "0" : score <= 3 ? "low" : score <= 6 ? "mid" : "high";
+    const [verdict, explanation] = verdictMap[verdictKey];
 
     return {
-        score: score,
-        verdict: verdict,
-        explanation: explanation,
-        findings: findings,
+        score,
+        verdict,
+        explanation,
+        findings,
         source: "content"
     };
 }
