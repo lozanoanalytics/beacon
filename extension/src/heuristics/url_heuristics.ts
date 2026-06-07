@@ -1,4 +1,33 @@
-import { HeuristicResult, Link } from "../types/heuristics";
+import { ExtractedPageData, HeuristicResult, Link, Verdict } from "../types/heuristics.js";
+
+const URL_HEURISTIC_CATEGORY_COUNT = 8;
+const MIN_SCORE = 1;
+const MAX_SCORE = 10;
+
+function roundScore(score: number): number {
+  return Math.round(score * 10) / 10;
+}
+
+function categoryScore(flagged: boolean): number {
+  return flagged ? MAX_SCORE : MIN_SCORE;
+}
+
+function typosquatCategoryScore(flagged: boolean, reasonCount: number): number {
+  if (!flagged) {
+    return MIN_SCORE;
+  }
+  return Math.min(MAX_SCORE, MIN_SCORE + reasonCount * 2);
+}
+
+function verdictFromScore(score: number): Verdict {
+  if (score <= 3) {
+    return "Safe";
+  }
+  if (score <= 6) {
+    return "Uncertain";
+  }
+  return "Scam";
+}
 
 /**
  * URL-based scam detection heuristics
@@ -290,85 +319,69 @@ function checkFaviconMismatch(url: string, expectedFaviconBrand?: string): { fla
  */
 export function analyzeLink(link: Link): HeuristicResult {
   const findings: string[] = [];
-  let suspicionScore = 0;
-  const maxScore = 8; // 8 possible flags now
 
-  // Flag 1: Check excessive length
   const lengthCheck = checkExcessiveLength(link.href);
   if (lengthCheck.flagged) {
     findings.push(`⚠️ ${lengthCheck.reason}`);
-    suspicionScore++;
   }
 
-  // Flag 2: Check insufficient length
   const insufficientCheck = checkInsufficientLength(link.href);
   if (insufficientCheck.flagged) {
     findings.push(`⚠️ ${insufficientCheck.reason}`);
-    suspicionScore++;
   }
 
-  // Flag 3: Check for IP address
   const ipCheck = checkIPAddressLink(link.href);
   if (ipCheck.flagged) {
     findings.push(`⚠️ ${ipCheck.reason}`);
-    suspicionScore++;
   }
 
-  // Flag 4: Check for typosquatting and homoglyphs
   const typosquatCheck = checkTyposquattingAndHomoglyphs(link.href);
   if (typosquatCheck.flagged) {
     for (const reason of typosquatCheck.reasons) {
       findings.push(`⚠️ ${reason}`);
     }
-    suspicionScore++;
   }
 
-  // Flag 5: Check for zero-day domain
   const zeroDayCheck = checkZeroDayDomain(link.href);
   if (zeroDayCheck.flagged) {
     findings.push(`⚠️ ${zeroDayCheck.reason}`);
-    suspicionScore++;
   }
 
-  // Flag 6: Check for HTTPS usage
   const httpsCheck = checkHTTPSUsage(link.href);
   if (httpsCheck.flagged) {
     findings.push(`⚠️ ${httpsCheck.reason}`);
-    suspicionScore++;
   }
 
-  // Flag 7: Check for @ symbol (credential injection)
   const atSymbolCheck = checkAtSymbolInURL(link.href);
   if (atSymbolCheck.flagged) {
     findings.push(`⚠️ ${atSymbolCheck.reason}`);
-    suspicionScore++;
   }
 
-  // Flag 8: Check for favicon mismatch
   const faviconCheck = checkFaviconMismatch(link.href, link.text);
   if (faviconCheck.flagged) {
     findings.push(`⚠️ ${faviconCheck.reason}`);
-    suspicionScore++;
   }
 
-  // Calculate normalized score (0-1)
-  const score = suspicionScore / maxScore;
+  const categoryScores = [
+    categoryScore(lengthCheck.flagged),
+    categoryScore(insufficientCheck.flagged),
+    categoryScore(ipCheck.flagged),
+    typosquatCategoryScore(typosquatCheck.flagged, typosquatCheck.reasons.length),
+    categoryScore(zeroDayCheck.flagged),
+    categoryScore(httpsCheck.flagged),
+    categoryScore(atSymbolCheck.flagged),
+    categoryScore(faviconCheck.flagged),
+  ];
 
-  // Determine verdict based on findings
-  let verdict: "Safe" | "Uncertain" | "Scam";
-
-  if (findings.length === 0) {
-    verdict = "Safe";
-  } else if (findings.length <= 2) {
-    verdict = "Uncertain";
-  } else {
-    verdict = "Scam";
-  }
+  const score = roundScore(
+    categoryScores.reduce((sum, value) => sum + value, 0) / URL_HEURISTIC_CATEGORY_COUNT
+  );
+  const verdict = verdictFromScore(score);
 
   return {
     score,
     verdict,
-    explanation: `Link analysis: ${findings.length} suspicious characteristics detected.`,
+    explanation: `URL analysis score ${score}/10 across ${URL_HEURISTIC_CATEGORY_COUNT} checks (${findings.length} findings).`,
     findings,
     source: "url",
   };
@@ -380,39 +393,50 @@ export function analyzeLink(link: Link): HeuristicResult {
 export function analyzeLinks(links: Link[]): HeuristicResult {
   if (links.length === 0) {
     return {
-      score: 0,
+      score: MIN_SCORE,
       verdict: "Safe",
-      explanation: "No links found on page",
+      explanation: "No URLs to analyze",
       findings: [],
       source: "url",
     };
   }
 
   const results = links.map(analyzeLink);
-  const averageScore = results.reduce((sum, r) => sum + r.score, 0) / results.length;
-  const suspiciousCount = results.filter((r) => r.verdict !== "Safe").length;
-
-  let verdict: "Safe" | "Uncertain" | "Scam";
-  if (suspiciousCount === 0) {
-    verdict = "Safe";
-  } else if (suspiciousCount <= links.length * 0.25) {
-    verdict = "Uncertain";
-  } else {
-    verdict = "Scam";
-  }
+  const score = roundScore(
+    results.reduce((sum, result) => sum + result.score, 0) / results.length
+  );
+  const verdict = verdictFromScore(score);
+  const suspiciousCount = results.filter((result) => result.verdict !== "Safe").length;
 
   const findings = results
-    .filter((r) => r.findings.length > 0)
+    .filter((result) => result.findings.length > 0)
     .map(
-      (r, i) =>
-        `Link ${i + 1} (${links[i].text || links[i].href}): ${r.findings.join("; ")}`
+      (result, index) =>
+        `Link ${index + 1} (${links[index].text || links[index].href}): ${result.findings.join("; ")}`
     );
 
   return {
-    score: averageScore,
+    score,
     verdict,
-    explanation: `Analyzed ${links.length} links. ${suspiciousCount} links showed suspicious characteristics.`,
+    explanation: `Analyzed ${links.length} URLs with average score ${score}/10. ${suspiciousCount} URL(s) flagged.`,
     findings,
     source: "url",
   };
+}
+
+/**
+ * Analyze the page URL plus all extracted links.
+ */
+export function analyzePageUrls(pageData: ExtractedPageData): HeuristicResult {
+  const urlsToAnalyze: Link[] = [];
+
+  if (pageData.url.length > 0) {
+    urlsToAnalyze.push({
+      text: pageData.title,
+      href: pageData.url,
+    });
+  }
+
+  urlsToAnalyze.push(...pageData.links);
+  return analyzeLinks(urlsToAnalyze);
 }

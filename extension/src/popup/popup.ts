@@ -1,8 +1,6 @@
 //(1) typescript interfaces for structured data
-interface PageData {
-  url: string;
-  textContent: string;
-}
+import { analyzePage } from "../heuristics/combinedHeuristics.js";
+import type { ExtractedPageData } from "../types/heuristics.js";
 
 interface WebsiteInfo {
   domainAge: string;
@@ -136,125 +134,24 @@ function getDomain(url: string): string {
   }
 }
 
-//(3) Mock Analysis function
-//only temporary until we connect to backend API
-
-function mockAnalyze(pageData: PageData): AnalysisResult {
-  const url: string = pageData.url.toLowerCase();
-  const domain: string = getDomain(pageData.url);
-
-  // Known safe domains with their mock info
-  const safeDomainsInfo: { [key: string]: WebsiteInfo } = {
-    "google.com": {
-      domainAge: "Created 27 years ago",
-      country: "United States",
-      registrar: "MarkMonitor Inc.",
-      popularity: "Very High (Top 5 globally)"
-    },
-    "gmail.com": {
-      domainAge: "Created 20 years ago",
-      country: "United States",
-      registrar: "MarkMonitor Inc.",
-      popularity: "Very High (Top 10 globally)"
-    },
-    "youtube.com": {
-      domainAge: "Created 21 years ago",
-      country: "United States",
-      registrar: "MarkMonitor Inc.",
-      popularity: "Very High (Top 3 globally)"
-    },
-    "github.com": {
-      domainAge: "Created 18 years ago",
-      country: "United States",
-      registrar: "MarkMonitor Inc.",
-      popularity: "High (Top 100 globally)"
-    },
-    "wikipedia.org": {
-      domainAge: "Created 25 years ago",
-      country: "United States",
-      registrar: "Gandi SAS",
-      popularity: "Very High (Top 10 globally)"
-    },
-    "amazon.com": {
-      domainAge: "Created 30 years ago",
-      country: "United States",
-      registrar: "MarkMonitor Inc.",
-      popularity: "Very High (Top 15 globally)"
-    },
-    "apple.com": {
-      domainAge: "Created 38 years ago",
-      country: "United States",
-      registrar: "CSC Corporate Domains",
-      popularity: "Very High (Top 20 globally)"
-    },
-    "microsoft.com": {
-      domainAge: "Created 33 years ago",
-      country: "United States",
-      registrar: "MarkMonitor Inc.",
-      popularity: "Very High (Top 30 globally)"
-    }
-  };
-
-  // Check if the domain matches any safe domain.
-  // Object.keys() gives us an array of all the keys in our object
-  // (the domain names). We use .find() to look for one that
-  // appears in the URL. .find() returns the first match or
-  // undefined if nothing matches.
-  const matchedSafe: string | undefined = Object.keys(safeDomainsInfo).find(
-    (safeDomain: string) =>
-      domain === safeDomain || domain.endsWith("." + safeDomain)
-  );
-
-  if (matchedSafe) {
-    return {
-      score: 1,
-      verdict: "Safe",
-      explanation: "This is a well-known, trusted website. No signs of phishing or scam content detected.",
-      websiteInfo: safeDomainsInfo[matchedSafe]
-    };
-  }
-
-  // Check for suspicious URL patterns
-  const suspiciousPatterns: string[] = [
-    "free-money",
-    "winner",
-    "prize",
-    "urgent",
-    "verify-account",
-    "login-secure",
-    "bit.ly",
-    "tinyurl"
-  ];
-
-  const isSuspicious: boolean = suspiciousPatterns.some(
-    (pattern: string) => url.includes(pattern)
-  );
-
-  if (isSuspicious) {
-    return {
-      score: 8,
-      verdict: "Scam",
-      explanation: "This URL contains patterns commonly used in phishing and scam websites. Do not enter any personal information.",
-      websiteInfo: {
-        domainAge: "Created less than 1 year ago",
-        country: "Unknown",
-        registrar: "NameCheap Inc.",
-        popularity: "Very Low (Not ranked)"
-      }
-    };
-  }
-
-  //rest = medium score
+function buildWebsiteInfo(url: string): WebsiteInfo {
+  const domain = getDomain(url);
   return {
-    score: 4,
-    verdict: "Uncertain",
-    explanation: "This website could not be verified as safe. Be cautious and avoid entering personal or financial information.",
-    websiteInfo: {
-      domainAge: "Created 2 years ago",
-      country: "Unknown",
-      registrar: "GoDaddy",
-      popularity: "Low"
-    }
+    domainAge: "Not available",
+    country: "Not available",
+    registrar: "Not available",
+    popularity: domain ? `Heuristic scan for ${domain}` : "Not available",
+  };
+}
+
+function runHeuristicAnalysis(pageData: ExtractedPageData): AnalysisResult {
+  const result = analyzePage(pageData);
+
+  return {
+    score: result.score,
+    verdict: result.verdict,
+    explanation: result.explanation,
+    websiteInfo: buildWebsiteInfo(pageData.url),
   };
 }
 
@@ -289,7 +186,7 @@ function showResults(result: AnalysisResult, url: string): void {
     errorDiv.classList.add("hidden");
     resultsDiv.classList.remove("hidden");
 
-    scoreNumber.textContent = result.score.toString(); // Update score number inside circle
+    scoreNumber.textContent = Math.round(result.score).toString(); // Update score number inside circle
     verdictText.textContent = result.verdict; // Update verdict text and URL
     const shortUrl: string = url.length > 50 //shortens URL 
     ? url.substring(0, 50) + "..."
@@ -336,14 +233,14 @@ scanButton.addEventListener("click", () => {
             chrome.tabs.sendMessage(
                 tab.id,
                 { action: "scanPage" },
-                (response: PageData) => {
+                (response: ExtractedPageData) => {
                     
                     if (chrome.runtime.lastError) {
                         showError(
                             "Could not scan this page. Try refreshing first."
                         );
                     } else if (response) {
-                        const result: AnalysisResult = mockAnalyze(response);
+                        const result: AnalysisResult = runHeuristicAnalysis(response);
                         showResults(result, response.url);
                     } else {
                         showError("No response from the page.");
